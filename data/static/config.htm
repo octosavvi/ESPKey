@@ -1,0 +1,135 @@
+<!-- 
+  ESPKey config editor
+  Copyright (c) 2016 Kenny McElroy.  All rights reserved.
+  This file is part of the ESPKey web interface.
+ 
+  This is free software; you can redistribute it and/or
+  modify it under the terms of the GNU Lesser General Public
+  License as published by the Free Software Foundation; either
+  version 2.1 of the License, or (at your option) any later version.
+  This library is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  Lesser General Public License for more details.
+  You should have received a copy of the GNU Lesser General Public
+  License along with this file; if not, write to the Free Software
+  Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+-->
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="Content-type" content="text/html; charset=utf-8">
+  <title>ESPKey Config Editor</title>
+  <script type="text/javascript">
+    var xmlhttp = new XMLHttpRequest();
+    xmlhttp.onreadystatechange = function() {
+      if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
+	if (xmlhttp.responseURL.endsWith('config.json')) {
+	  config = JSON.parse(xmlhttp.responseText);
+	  loadValues();
+	} else if (xmlhttp.responseURL.endsWith('restart')) {
+	  window.location = "/static/log.htm";
+	} else {
+	  if (confirm('Saved!  Restart now?')) {
+	    document.body.innerHTML = "<p>Restarting...</p>"
+	    xmlhttp.open("GET", "/restart", true);
+	    xmlhttp.send();
+	  }
+	}
+      }
+    };
+
+    var config = {
+      log_name : "Alpha",
+      ap_enable : "true",
+      ap_hidden : "false",
+      ap_ssid : "ESPKey-defaults",
+      ap_psk : "accessgranted",
+      station_ssid : "bob",
+      station_psk : "",
+      mDNShost : "ESPKey",
+      DoS_id : "7fffffff:31",
+      ota_password : "ExtraSpecialPassKey",
+      www_username : "",
+      www_password : "",
+      syslog_server : "",
+      syslog_port : 514,
+      syslog_service_name : "accesscontrol",
+      syslog_host : "ESPKey",
+      syslog_priority : 36,
+    };
+    xmlhttp.open("GET", "/config.json", true);
+    xmlhttp.send();
+
+    function sendConfig() {
+      var boundary = '------------------------'+Math.floor(Math.random() * Math.pow(10,8));
+      var content = [];
+      content.push('--' + boundary);
+      content.push('Content-Disposition: form-data; name="f"; filename="config.json"');
+      content.push('Content-Type: text/plain');
+      content.push('');
+      content.push(JSON.stringify(config) + "\n");
+      content.push('');
+      content.push('--' + boundary + '--');
+
+      //xmlhttp.open("POST", "/ESP/writefile.php", true);	// XXX DELETEME XXX
+      xmlhttp.open("POST", "/edit", true);		// XXX  USE ME  XXX 
+      xmlhttp.setRequestHeader('Content-Type', 'multipart/form-data; boundary='+ boundary);
+      xmlhttp.send(content.join("\r\n"));
+    }
+
+    function submitConfig() {
+      var x = document.getElementById("frm1");
+      var i;
+      for (i = 0; i < x.length ;i++) {
+	var y = x.elements[i];
+	if (y.type == "checkbox") {
+	  if (y.checked) {
+	    config[y.name] = "true";
+	  } else {
+	    config[y.name] = "false";
+	  }
+	} else {
+	  config[y.name] = y.value;
+	}
+      }
+      sendConfig();
+    }
+
+    function loadValues() {
+      for (var key in config) {
+	var input = document.getElementsByName(key)[0];
+	if (input.type == "checkbox") {
+	  input.checked = config[key] == "true";
+	} else {
+	  input.value = config[key];
+	}
+      }
+      return true;
+    }
+
+  </script>
+</head>
+<body id="index" style="margin:0; padding:0;" onload="loadValues()">
+  <form id="frm1" action="#">
+    Log name: <input type="text" name="log_name"><br>
+    Station SSID: <input type="text" name="station_ssid"><br>
+    Station Password: <input type="text" name="station_psk"><br>
+    Enable AP if station mode fails to connect: <input type="checkbox" name="ap_enable"><br>
+    Hide AP: <input type="checkbox" name="ap_hidden"><br>
+    AP SSID: <input type="text" name="ap_ssid"><br>
+    AP Password: <input type="text" name="ap_psk"><br>
+    mDNS hostname: <input type="text" name="mDNShost"><br>
+    DoS ID: <input type="text" name="DoS_id"><br>
+    OTA password: <input type="text" name="ota_password"><br>
+    WWW Basic Auth username: <input type="text" name="www_username"><br>
+    WWW Basic Auth password: <input type="text" name="www_password"><br>
+    Syslog server: <input type="text" name="syslog_server"><br>
+    Syslog port: <input type="text" name="syslog_port"><br>
+    Syslog service name: <input type="text" name="syslog_service_name"><br>
+    Syslog host: <input type="text" name="syslog_host"><br>
+    Syslog priority: <input type="text" name="syslog_priority"><br>
+  </form>
+  <button onclick="submitConfig()">Submit</button>
+</body>
+</html>

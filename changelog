@@ -1,0 +1,8 @@
+131:
+Proper handling of 40-bit and longer IDs
+Access control via aux pin and auth.txt
+Basic auth for web services
+Logname/version/chipid integrated into navbar
+Moved index.htm to /static/ for improved caching
+UDP syslog for access control
+

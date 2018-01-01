@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta http-equiv="Content-type" content="text/html; charset=utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ESPKey</title>
+  <link rel="stylesheet" type="text/css" href="/static/topnav.css">
+  <script type="text/javascript">
+    var xmlhttp = new XMLHttpRequest();
+    var verdat = ['ESPKey'];
+    var verdatn = 0;
+    xmlhttp.onreadystatechange = function() {
+      if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
+	if (xmlhttp.responseURL.endsWith('/version')) {
+	  ver = JSON.parse(xmlhttp.responseText);
+	  verdat = [ver["log_name"], "v."+ver["version"], "ID:"+ver["ChipID"]];
+	  next_verdat();
+	}
+      }
+    };
+    xmlhttp.open("GET", "/version", true);
+    xmlhttp.send();
+    function next_verdat() {
+      document.getElementById("message_box").innerText = verdat[verdatn++];
+      verdatn %= verdat.length;
+    }
+
+    function topNavClear() {
+      document.getElementById("myTopnav").className = "topnav";
+    }
+    /* Toggle between adding and removing the "responsive" class to topnav when the user clicks on the icon */
+    function topNavFunction() {
+      var x = document.getElementById("myTopnav");
+      if (x.className === "topnav") {
+	x.className += " responsive";
+      } else {
+	x.className = "topnav";
+      }
+    }
+    function onBodyLoad() {
+      var h = window.innerHeight
+	|| document.documentElement.clientHeight
+	|| document.body.clientHeight;
+      document.getElementsByName("iframe_a")[0].height = h - 68;
+    }
+  </script>
+</head>
+<body id="index" onload="onBodyLoad()">
+   <ul class="topnav" id="myTopnav">
+     <li><a href="/static/log.htm" target="iframe_a" onclick="topNavClear()">Home</a></li>
+     <li><a href="/static/config.htm" target="iframe_a" onclick="topNavClear()">Configure</a></li>
+     <li><a href="/static/gpio.htm" target="iframe_a" onclick="topNavClear()">Diagnostics</a></li>
+     <li><a href="/edit" target="iframe_a" onclick="topNavClear()">File Editor</a></li>
+     <li><a href="/update" target="iframe_a" onclick="topNavClear()">Update</a></li>
+     <li><a href="/restart" target="iframe_a" onclick="topNavClear()">Restart</a></li>
+     <li class="icon">
+       <a href="javascript:void(0);" onclick="topNavFunction()">&#9776;</a>
+     </li>
+     <li id="message_box" onclick="next_verdat()"></li>
+  </ul>
+  <iframe src="/static/log.htm" name="iframe_a" style="border:none;margin:0px;" width="100%"></iframe>
+</body>
+</html>
