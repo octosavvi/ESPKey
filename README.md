@@ -10,4 +10,4 @@ Open in Arduino IDE and click Verify (or Upload if connected to UART).
 Check out [this great documentation](https://redteamtools.com/espkey) put together by Babak of Red Team Tools
 
 ### Hardware
-Hardware can be [purchased](https://redteamtools.com/espkey) or have a look here in the [hardware/] directory if you want to build your own.
+Hardware can be [purchased](https://redteamtools.com/espkey) or have a look in the [hardware](hardware/) directory if you want to build your own.
