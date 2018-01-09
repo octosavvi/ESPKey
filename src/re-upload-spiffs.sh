@@ -29,7 +29,7 @@ upload_dir () {
 	    echo Uploading $F
 	    DPATH="${PWD##${CHOP:=$PWD}}"
 	    case "$F" in
-		"*.json"|"*.txt" )
+		*.json|*.txt )
 		    upload_file "$F" "$DPATH"
 		;;
 		*)
