@@ -3,6 +3,9 @@ ESPKey is a small device which can be implanted into facility access control sys
 
 In case you need a simple access control system to play with, ESPKey can do that too.  All you need is a card reader, ESPKey and some device to be controlled (like a door lock, electric strike, magnetic lock or just an indicator light).  ESPKey replaces the giant door controller, allowing you to build a simple mobile test lab.  Or a great little portable RFID credential sponge, ready to be hand carried or installed in any heavily trafficked area.
 
+### Releases
+Have a look [over here](releases/latest) for the latest pre-built firmware and UI release.
+
 ### Build instructions
 Open in Arduino IDE and click Verify (or Upload if connected to UART).
 
