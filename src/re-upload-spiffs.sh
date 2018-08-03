@@ -24,10 +24,11 @@ upload_file () {
 }
 
 upload_dir () {
+    HERE=$(pwd)
+    DPATH="${HERE##${CHOP:=$HERE}}"
     for F in *; do
 	if [ -f "$F" ]; then
 	    echo Uploading $F
-	    DPATH="${PWD##${CHOP:=$PWD}}"
 	    case "$F" in
 		*.json|*.txt )
 		    upload_file "$F" "$DPATH"

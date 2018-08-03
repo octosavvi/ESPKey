@@ -20,10 +20,11 @@ delete_all () {
 }
 
 upload_dir () {
+    HERE=$(pwd)
+    DPATH="${HERE##${CHOP:=$HERE}}"
     for F in *; do
 	if [ -f "$F" ]; then
 	    echo Uploading $F
-	    DPATH="${PWD##${CHOP:=$PWD}}"
 	    curl -F "f=@${F};filename=${DPATH}/${F}" http://${TARGET}/edit
 	elif [ -d "$F" ]; then
 	    cd $F
