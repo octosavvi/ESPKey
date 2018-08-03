@@ -575,11 +575,11 @@ void setup() {
       DBG_OUTPUT_PORT.printf("FS File: %s, size: %s\n", fileName.c_str(), formatBytes(fileSize).c_str());
     }
   }
-  append_log(F("Starting up!"));
 
   // If a log.txt exists, use ap_ssid=ESPKey-<chipid> instead of the default ESPKey-config
   // A config file will take precedence over this
   if (SPIFFS.exists("/log.txt")) dhcp_hostname.toCharArray(ap_ssid, sizeof(ap_ssid));
+  append_log(F("Starting up!"));
 
   // Load config file.
   if (! loadConfig()) {
