@@ -12,7 +12,7 @@ list_files () {
 delete_all () {
     for F in $(list_files); do
 	case "$F" in
-	    'log.txt'|'config.json') echo Skipping $F; continue;;
+	    'log.txt'|'config.json'|'auth.txt') echo Skipping $F; continue;;
 	esac
 	echo Deleting $F
 	curl -sX DELETE "http://${TARGET}/edit?path=/${F}"
