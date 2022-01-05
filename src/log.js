@@ -206,6 +206,7 @@ function fill_modal(c, title) {
   modal.body.innerHTML = "";
   append_text("Raw: ");
   var s = append_editable("SPAN", "raw", c.text);
+  if(c.parseClass=="good") append_text(" (DecNP: "+parseInt(c.bits.slice(1,-1).join(''),2)+")")
   append_br();
   if(c.facility) {
     append_text("Facility: ");
