@@ -11,13 +11,14 @@
 *
 */
 
-#include <ESP8266WiFi.h>
+#include <WiFi.h>
 #include <WiFiUdp.h>
 #include <WiFiClient.h>
-#include <ESP8266WebServer.h>
-#include <ESP8266mDNS.h>
-#include <ESP8266HTTPUpdateServer.h>
+#include <WebServer.h>
+#include <ESPmDNS.h>
+#include <HTTPUpdateServer.h>
 #include <FS.h>
+#include <SPIFFS.h>
 #include <ArduinoOTA.h>
 #include <ArduinoJson.h>
 
@@ -29,6 +30,7 @@ extern "C" {
 
 #define VERSION "131"
 
+#define FORMAT_SPIFFS_IF_FAILED true 
 #define HOSTNAME "ESPKey-" // Hostname prefix for DHCP/OTA
 #define CONFIG_FILE "/config.json"
 #define AUTH_FILE "/auth.txt"
@@ -38,13 +40,13 @@ extern "C" {
 #define PULSE_GAP 2000 - PULSE_WIDTH   // delay between pulses in microSeconds
 
 // Pin number assignments
-#define D0_ASSERT 12
-#define D0_SENSE 13
-#define D1_ASSERT 16
-#define D1_SENSE 14
-#define LED_ASSERT 4
-#define LED_SENSE 5
-#define CONF_RESET 0
+#define D0_ASSERT 13
+#define D0_SENSE 12
+#define D1_ASSERT 14
+#define D1_SENSE 27
+#define LED_ASSERT 26
+#define LED_SENSE 25
+#define CONF_RESET 33
 
 // Default settings used when no configuration file exists
 char log_name[20] = "Alpha";
@@ -67,8 +69,8 @@ char syslog_host[20] = "ESPKey";
 byte syslog_priority = 36;
 
 WiFiUDP Udp;
-ESP8266WebServer server(80);
-ESP8266HTTPUpdateServer httpUpdater;
+WebServer server(80);
+HTTPUpdateServer httpUpdater;
 File fsUploadFile;
 
 //byte incoming_byte = 0; 
@@ -296,7 +298,8 @@ bool loadConfig() {
     char buf[20];
     strncpy(buf, json["syslog_server"], 20);
     syslog_server.fromString(buf);
-    DBG_OUTPUT_PORT.println("Loaded syslog_server: " + String(syslog_server, HEX));
+    // DBG_OUTPUT_PORT.println("Loaded syslog_server: " + String(syslog_server, HEX));
+    DBG_OUTPUT_PORT.println("Loaded syslog_server: " + String(buf));
   }
   if (json.containsKey("syslog_port")) {
     syslog_port = json["syslog_port"];
@@ -362,12 +365,12 @@ void append_log(String text) {
 }
 
 void syslog(String text) {
-  if (WiFi.status() != WL_CONNECTED || syslog_server == INADDR_NONE) return;
+  if (WiFi.status() != WL_CONNECTED || syslog_server == IPAddress(0,0,0,0)) return;
   char buf[101];
   text = "<"+String(syslog_priority)+">"+String(syslog_host)+" "+String(syslog_service_name)+": "+text;
   text.toCharArray(buf, sizeof(buf)-1);
   Udp.beginPacket(syslog_server, syslog_port);
-  Udp.write(buf);
+  Udp.printf("%s", buf);
   Udp.endPacket();
 }
 
@@ -459,20 +462,20 @@ void handleFileList() {
   
   String path = server.arg("dir");
   DBG_OUTPUT_PORT.println("handleFileList: " + path);
-  Dir dir = SPIFFS.openDir(path);
+  File  dir = SPIFFS.open(path);
   path = String();
 
   String output = "[";
-  while(dir.next()){
-    File entry = dir.openFile("r");
+
+  File entry = dir.openNextFile() ;
+  while(entry){
     if (output != "[") output += ',';
-    bool isDir = false;
     output += "{\"type\":\"";
-    output += (isDir)?"dir":"file";
+    output += (entry.isDirectory())?"dir":"file";
     output += "\",\"name\":\"";
     output += String(entry.name()).substring(1);
     output += "\"}";
-    entry.close();
+    entry = dir.openNextFile() ;
   }
   
   output += "]";
@@ -524,6 +527,19 @@ void auxChange(void) {
   }
 }
 
+String getChipId() {
+  static String result = "" ;
+  
+  if (result == "") {
+    uint32_t chipId= 0;
+    for (int i=0; i<17; i=i+8) {
+      chipId |= ((ESP.getEfuseMac() >> (40 - i)) & 0xff) << i;
+    }
+    result = String(chipId, HEX) ;
+  }
+  return result ;
+}
+
 void setup() {
   // Outputs
   pinMode(D0_ASSERT, OUTPUT); 
@@ -550,29 +566,32 @@ void setup() {
   DBG_OUTPUT_PORT.setDebugOutput(true);
 
   delay(100);
-
-  DBG_OUTPUT_PORT.println("Chip ID: 0x" + String(ESP.getChipId(), HEX));
+  
+  DBG_OUTPUT_PORT.println("Chip ID: 0x" + getChipId());
 
   // Set Hostname.
   String dhcp_hostname(HOSTNAME);
-  dhcp_hostname += String(ESP.getChipId(), HEX);
+  
+  dhcp_hostname += getChipId();
   WiFi.hostname(dhcp_hostname);
 
   // Print hostname.
   DBG_OUTPUT_PORT.println("Hostname: " + dhcp_hostname);
 
-  if (!SPIFFS.begin()) {
+  if (!SPIFFS.begin(FORMAT_SPIFFS_IF_FAILED)) {
     Serial.println(F("Failed to mount file system"));
     return;
   } else {
-    Dir dir = SPIFFS.openDir("/");
-    while (dir.next()) {
-      String fileName = dir.fileName();
+    File dir = SPIFFS.open("/");
+    File entry = dir.openNextFile();
+    while (entry) {
+      String fileName = entry.name();
       // This is a dirty hack to deal with readers which don't pull LED up to 5V
       if (fileName == String("/auth.txt")) detachInterrupt(digitalPinToInterrupt(LED_SENSE));
 
-      size_t fileSize = dir.fileSize();
+      size_t fileSize = entry.size();
       DBG_OUTPUT_PORT.printf("FS File: %s, size: %s\n", fileName.c_str(), formatBytes(fileSize).c_str());
+      entry = dir.openNextFile();
     }
   }
 
@@ -691,17 +710,23 @@ void setup() {
   
   server.on("/version", HTTP_GET, [](){
     if (basicAuthFailed()) return false;
-    String json = "{\"version\":\""+String(VERSION)+"\",\"log_name\":\""+String(log_name)+"\",\"ChipID\":\""+String(ESP.getChipId(), HEX)+"\"}\n";
+    
+    String json = "{\"version\":\""+String(VERSION)+"\",\"log_name\":\""+String(log_name)+"\",\"ChipID\":\""+ getChipId() +"\"}\n";
     server.send(200, "text/json", json);
     json = String();
   });
   //get heap status, analog input value and all GPIO statuses in one json call
   server.on("/all", HTTP_GET, [](){
+    DBG_OUTPUT_PORT.println(String("DO: ") + digitalRead(D0_SENSE)\
+                           + " D1: " + digitalRead(D1_SENSE)\
+                           + " LED: "+ digitalRead(LED_SENSE)\
+                           +" RESET: "+digitalRead(CONF_RESET)\
+                           );
     if (basicAuthFailed()) return false;
     String json = "{";
     json += "\"heap\":"+String(ESP.getFreeHeap());
     json += ", \"analog\":"+String(analogRead(A0));
-    json += ", \"gpio\":"+String((uint32_t)(((GPI | GPO) & 0xFFFF) | ((GP16I & 0x01) << 16)));
+    json += ", \"gpio\":"+String((uint32_t)(GPIO.in));
     json += "}";
     server.send(200, "text/json", json);
     json = String();

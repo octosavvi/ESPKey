@@ -9,6 +9,8 @@ Have a look [over here](https://github.com/octosavvi/ESPKey/releases/latest) for
 ### Build instructions
 Open in Arduino IDE and click Verify (or Upload if connected to UART).
 
+Launch src/publish.sh to generate ui-update.sh. When connected to ESPKey's web server, launch ui-update.sh to upload the files that make the web UI.
+
 ### Usage
 Check out [this great documentation](https://redteamtools.com/espkey) put together by Babak of Red Team Tools.
 
