@@ -11,6 +11,8 @@
 *
 */
 
+#include <Arduino.h>
+
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <WiFiClient.h>
@@ -40,13 +42,9 @@ extern "C" {
 #define PULSE_GAP 2000 - PULSE_WIDTH   // delay between pulses in microSeconds
 
 // Pin number assignments
-#define D0_ASSERT 13
-#define D0_SENSE 12
-#define D1_ASSERT 14
-#define D1_SENSE 27
-#define LED_ASSERT 26
-#define LED_SENSE 25
-#define CONF_RESET 33
+
+#include "pin_config.h"
+#define CONF_RESET 0
 
 // Default settings used when no configuration file exists
 char log_name[20] = "Alpha";
@@ -56,7 +54,7 @@ char ap_ssid[20] = "ESPKey-config"; // Default SSID.
 IPAddress ap_ip(192, 168, 4, 1);
 char ap_psk[20] = "accessgranted"; // Default PSK.
 char station_ssid[20] = "";
-char station_psk[20] = "";
+char station_psk[30] = "";
 char mDNShost[20] = "ESPKey";
 String DoS_id = "7fffffff:31";
 char ota_password[24] = "ExtraSpecialPassKey";
@@ -85,7 +83,7 @@ volatile unsigned long last_aux_change = 0;
 volatile byte last_aux = 1;
 volatile byte expect_aux = 2;
 
-void reader1_append(int value) {
+void IRAM_ATTR reader1_append(int value) {
   reader1_count++;
   reader1_millis = millis();
   reader1_byte = reader1_byte << 1;
@@ -96,11 +94,11 @@ void reader1_append(int value) {
   }
 }
 
-void reader1_D0_trigger(void) {
+void IRAM_ATTR reader1_D0_trigger(void) {
   reader1_append(0);
 }
 
-void reader1_D1_trigger(void) {
+void IRAM_ATTR reader1_D1_trigger(void) {
   reader1_append(1);
 }
 
@@ -271,7 +269,7 @@ bool loadConfig() {
     DBG_OUTPUT_PORT.println("Loaded station_ssid: " + String(station_ssid));
   }
   if (json.containsKey("station_psk")) {
-    strncpy(station_psk, json["station_psk"], 20);
+    strncpy(station_psk, json["station_psk"], 30);
     DBG_OUTPUT_PORT.println("Loaded station_psk: " + String(station_psk));
   }
   if (json.containsKey("mDNShost")) {
@@ -353,15 +351,32 @@ String getContentType(String filename){
   return "text/plain";
 }
 
-void append_log(String text) {
+void IRAM_ATTR append_log(String text) {
+  /* append_log might be run during an interruption.
+  * On ESP32 it is not recommended to use Serial.println or SPI during interrupts to keep execution time short,
+  * so we store the message in a static variable, and if we are not in an interruption log it to file,
+  * otherwise it will be logged on next call not in an interrupt.
+  */
+  
+  static String deferredLog = "" ;
+  if (text != "") deferredLog += String(millis()) + " " + text + "\x0D\x0A";
+  
+  // if there is nothing to log, exit now.
+  if (deferredLog == "") return ;
+  
+  // if we are in an interrupt return now, we'l log this message on next call to append_log
+  if (xPortInIsrContext()) return ;
+  
   File file = SPIFFS.open("/log.txt", "a");
   if(file) {
-    file.println(String(millis()) + " " + text);
-    DBG_OUTPUT_PORT.println("Appending to log: " + String(millis()) + " " + text);
+    file.print(deferredLog);
+    DBG_OUTPUT_PORT.print("Appending to log: " + deferredLog);
     file.close();
+    deferredLog = "" ;
   }
   else
     DBG_OUTPUT_PORT.println("Failed opening log file.");
+
 }
 
 void syslog(String text) {
@@ -496,9 +511,9 @@ void handleRestart() {
   ESP.restart();
 }
 
-void resetConfig(void) {
+void IRAM_ATTR resetConfig(void) {
   if (millis() > 30000) return;
-  if (digitalRead(CONF_RESET) == 0 & reset_pin_state == 1) {
+  if (digitalRead(CONF_RESET) == 0 && reset_pin_state == 1) {
     reset_pin_state = 0;
     config_reset_millis = millis();
   } else {
@@ -511,7 +526,7 @@ void resetConfig(void) {
   }
 }
 
-void auxChange(void) {
+void IRAM_ATTR auxChange(void) {
   volatile byte new_value = digitalRead(LED_SENSE);
   if (new_value == expect_aux) {
     last_aux = new_value;
@@ -548,6 +563,8 @@ void setup() {
   digitalWrite(D1_ASSERT, LOW); 
   pinMode(LED_ASSERT, OUTPUT); 
   digitalWrite(LED_ASSERT, LOW); 
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, HIGH); 
 
   // Inputs
   pinMode(D0_SENSE, INPUT);
@@ -725,8 +742,8 @@ void setup() {
     if (basicAuthFailed()) return false;
     String json = "{";
     json += "\"heap\":"+String(ESP.getFreeHeap());
-    json += ", \"analog\":"+String(analogRead(A0));
-    json += ", \"gpio\":"+String((uint32_t)(GPIO.in));
+    // json += ", \"analog\":"+String(analogRead(A0)); // not used ?
+    json += ", \"gpio\":"+String((uint32_t)(GPIO.in)); // we are limited to 32 bit given the way it is interpreted by graphs.js and gpio.htm
     json += "}";
     server.send(200, "text/json", json);
     json = String();
@@ -799,14 +816,14 @@ void loop() {
   server.handleClient();
   ArduinoOTA.handle();
 
-  /*
+  
   // Blink LED for testing
-  digitalWrite(LED_ASSERT, HIGH);
-  delay(100);
-  digitalWrite(LED_ASSERT, LOW);
-  delay(4900);
-  */
-
+  #ifdef LED_BUILTIN
+    toggle_pin(LED_BUILTIN);
+  #endif
+  
+  // Log text that may have happen during interrupts
+  append_log("") ;
   // Standard delay
   delay(100);
 }
