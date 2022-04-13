@@ -1,6 +1,8 @@
 /* ESPKey
 *  Kenny McElroy
 *
+* ported to ESP32 and PlatformIO by Didier Arenzana.
+* 
 * This sketch runs on the ESPKey ESP8266 module carrier with the 
 * intent of being physically attached to the Wiegand data wires
 * between a card reader and the local control box.
@@ -13,14 +15,23 @@
 
 #include <Arduino.h>
 
-#include <WiFi.h>
+#if defined (ESP32)
+  #include <WiFi.h>
+  #include <WebServer.h>
+  #include <ESPmDNS.h>
+  #include <HTTPUpdateServer.h>
+  #include <SPIFFS.h>
+#elif defined (ESP8266)
+  #include <ESP8266WebServer.h>
+  #include <ESP8266mDNS.h>
+  #include <ESP8266HTTPUpdateServer.h>
+#else
+  #error "This code is intended to run on ESP8266 or ESP32."
+#endif
+
 #include <WiFiUdp.h>
 #include <WiFiClient.h>
-#include <WebServer.h>
-#include <ESPmDNS.h>
-#include <HTTPUpdateServer.h>
 #include <FS.h>
-#include <SPIFFS.h>
 #include <ArduinoOTA.h>
 #include <ArduinoJson.h>
 
@@ -32,7 +43,12 @@ extern "C" {
 
 #define VERSION "131"
 
-#define FORMAT_SPIFFS_IF_FAILED true 
+#if defined(ESP32)
+  #define FORMAT_SPIFFS_IF_FAILED true
+#else
+  #define FORMAT_SPIFFS_IF_FAILED
+#endif
+
 #define HOSTNAME "ESPKey-" // Hostname prefix for DHCP/OTA
 #define CONFIG_FILE "/config.json"
 #define AUTH_FILE "/auth.txt"
@@ -44,7 +60,6 @@ extern "C" {
 // Pin number assignments
 
 #include "pin_config.h"
-#define CONF_RESET 0
 
 // Default settings used when no configuration file exists
 char log_name[20] = "Alpha";
@@ -67,8 +82,14 @@ char syslog_host[20] = "ESPKey";
 byte syslog_priority = 36;
 
 WiFiUDP Udp;
-WebServer server(80);
-HTTPUpdateServer httpUpdater;
+#if defined(ESP32)
+  WebServer server(80);
+  HTTPUpdateServer httpUpdater;
+#elif defined(ESP8266)
+  ESP8266WebServer server(80);
+  ESP8266HTTPUpdateServer httpUpdater;
+#endif
+
 File fsUploadFile;
 
 //byte incoming_byte = 0; 
@@ -365,7 +386,9 @@ void IRAM_ATTR append_log(String text) {
   if (deferredLog == "") return ;
   
   // if we are in an interrupt return now, we'l log this message on next call to append_log
-  if (xPortInIsrContext()) return ;
+  #if defined(ESP32)
+    if (xPortInIsrContext()) return ;
+  #endif
   
   File file = SPIFFS.open("/log.txt", "a");
   if(file) {
@@ -376,7 +399,6 @@ void IRAM_ATTR append_log(String text) {
   }
   else
     DBG_OUTPUT_PORT.println("Failed opening log file.");
-
 }
 
 void syslog(String text) {
@@ -410,7 +432,7 @@ bool handleFileRead(String path){
       path += F(".gz");
     File file = SPIFFS.open(path, "r");
     server.sendHeader("Now", String(millis()));
-    size_t sent = server.streamFile(file, contentType);
+    server.streamFile(file, contentType);
     file.close();
     return true;
   }
@@ -477,20 +499,34 @@ void handleFileList() {
   
   String path = server.arg("dir");
   DBG_OUTPUT_PORT.println("handleFileList: " + path);
+#if defined(ESP8266)
+  Dir dir = SPIFFS.openDir(path);
+#elif defined(ESP32)
   File  dir = SPIFFS.open(path);
+#endif
   path = String();
 
   String output = "[";
-
-  File entry = dir.openNextFile() ;
-  while(entry){
+#if defined(ESP8266)
+  while(dir.next()){
+    File entry = dir.openFile("r");
+#elif defined(ESP32)
+  while(File entry = dir.openNextFile()){
+#endif
     if (output != "[") output += ',';
+#if defined(ESP8266)
+    bool isDir = false;
+#elif defined(ESP32)
+    bool isDir = entry.isDirectory();
+#endif
     output += "{\"type\":\"";
-    output += (entry.isDirectory())?"dir":"file";
+    output += (isDir)?"dir":"file";
     output += "\",\"name\":\"";
     output += String(entry.name()).substring(1);
     output += "\"}";
-    entry = dir.openNextFile() ;
+#if defined(ESP8266)
+    entry.close();
+#endif
   }
   
   output += "]";
@@ -544,14 +580,18 @@ void IRAM_ATTR auxChange(void) {
 
 String getChipId() {
   static String result = "" ;
-  
-  if (result == "") {
-    uint32_t chipId= 0;
-    for (int i=0; i<17; i=i+8) {
-      chipId |= ((ESP.getEfuseMac() >> (40 - i)) & 0xff) << i;
-    }
-    result = String(chipId, HEX) ;
+
+  if (result != "") return result ;
+
+#if defined(ESP8266)
+  result = String(ESP.getChipId(), HEX);
+#elif defined(ESP32)
+  uint32_t chipId= 0;
+  for (int i=0; i<17; i=i+8) {
+    chipId |= ((ESP.getEfuseMac() >> (40 - i)) & 0xff) << i;
   }
+  result = String(chipId, HEX) ;
+#endif
   return result ;
 }
 
@@ -563,8 +603,10 @@ void setup() {
   digitalWrite(D1_ASSERT, LOW); 
   pinMode(LED_ASSERT, OUTPUT); 
   digitalWrite(LED_ASSERT, LOW); 
+#if defined(LED_BUILTIN)
   pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, HIGH); 
+  digitalWrite(LED_BUILTIN, HIGH);
+#endif
 
   // Inputs
   pinMode(D0_SENSE, INPUT);
@@ -583,12 +625,12 @@ void setup() {
   DBG_OUTPUT_PORT.setDebugOutput(true);
 
   delay(100);
-  
+
   DBG_OUTPUT_PORT.println("Chip ID: 0x" + getChipId());
 
   // Set Hostname.
   String dhcp_hostname(HOSTNAME);
-  
+
   dhcp_hostname += getChipId();
   WiFi.hostname(dhcp_hostname);
 
@@ -599,16 +641,25 @@ void setup() {
     Serial.println(F("Failed to mount file system"));
     return;
   } else {
+#if defined(ESP32)
     File dir = SPIFFS.open("/");
-    File entry = dir.openNextFile();
-    while (entry) {
+    while (File entry = dir.openNextFile()) {
       String fileName = entry.name();
+#else
+    Dir dir = SPIFFS.openDir("/");
+    while (dir.next()) {
+      String fileName = dir.fileName();
+#endif
+
       // This is a dirty hack to deal with readers which don't pull LED up to 5V
       if (fileName == String("/auth.txt")) detachInterrupt(digitalPinToInterrupt(LED_SENSE));
 
+#if defined(ESP32)
       size_t fileSize = entry.size();
+#else
+      size_t fileSize = dir.fileSize();
+#endif
       DBG_OUTPUT_PORT.printf("FS File: %s, size: %s\n", fileName.c_str(), formatBytes(fileSize).c_str());
-      entry = dir.openNextFile();
     }
   }
 
@@ -700,6 +751,7 @@ void setup() {
   server.on("/format", HTTP_DELETE, [](){
     if (basicAuthFailed()) return false;
     if(SPIFFS.format()) server.send(200, "text/plain", "Format success!");
+    return true ;
   });
   //list directory
   server.on("/list", HTTP_GET, handleFileList);
@@ -707,6 +759,7 @@ void setup() {
   server.on("/edit", HTTP_GET, [](){
     if (basicAuthFailed()) return false;
     if(!handleFileRead("/static/edit.htm")) server.send(404, "text/plain", "FileNotFound");
+    return true;
   });
   //create file
   server.on("/edit", HTTP_PUT, handleFileCreate);
@@ -723,6 +776,7 @@ void setup() {
     if (basicAuthFailed()) return false;
     if(!handleFileRead(server.uri()))
       server.send(404, "text/plain", "FileNotFound");
+    return true ;
   });
   
   server.on("/version", HTTP_GET, [](){
@@ -731,6 +785,7 @@ void setup() {
     String json = "{\"version\":\""+String(VERSION)+"\",\"log_name\":\""+String(log_name)+"\",\"ChipID\":\""+ getChipId() +"\"}\n";
     server.send(200, "text/json", json);
     json = String();
+    return true;
   });
   //get heap status, analog input value and all GPIO statuses in one json call
   server.on("/all", HTTP_GET, [](){
@@ -743,10 +798,15 @@ void setup() {
     String json = "{";
     json += "\"heap\":"+String(ESP.getFreeHeap());
     // json += ", \"analog\":"+String(analogRead(A0)); // not used ?
+#if defined(ESP32)
     json += ", \"gpio\":"+String((uint32_t)(GPIO.in)); // we are limited to 32 bit given the way it is interpreted by graphs.js and gpio.htm
+#else
+    json += ", \"gpio\":"+String((uint32_t)(((GPI | GPO) & 0xFFFF) | ((GP16I & 0x01) << 16)));
+#endif
     json += "}";
     server.send(200, "text/json", json);
     json = String();
+    return true;
   });
   server.serveStatic("/static", SPIFFS, "/static","max-age=86400");
   httpUpdater.setup(&server);	// This doesn't do authentication

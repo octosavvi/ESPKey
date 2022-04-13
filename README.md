@@ -7,9 +7,30 @@ In case you need a simple access control system to play with, ESPKey can do that
 Have a look [over here](https://github.com/octosavvi/ESPKey/releases/latest) for the latest pre-built firmware and UI release.
 
 ### Build instructions
-Open in Arduino IDE and click Verify (or Upload if connected to UART).
+1. [Install PlatformIO Core](http://docs.platformio.org/page/core.html)
+2.  Run these commands:
 
-Launch src/publish.sh to generate ui-update.sh. When connected to ESPKey's web server, launch ui-update.sh to upload the files that make the web UI.
+```shell
+# Change to working directory
+$ cd <path-to-workingdir>
+
+# Build project
+$ pio run
+
+# Upload firmware
+$ pio run --target upload
+
+# Build specific environment
+$ pio run -e esp12
+
+# Upload firmware for the specific environment
+$ pio run -e esp12 --target upload
+
+# Clean build files
+$ pio run --target clean
+```
+
+3. Launch html_src/publish.sh to generate ui-update.sh. When connected to ESPKey's web server, launch ui-update.sh to upload the files that make the web UI.
 
 ### Usage
 Check out [this great documentation](https://redteamtools.com/espkey) put together by Babak of Red Team Tools.
