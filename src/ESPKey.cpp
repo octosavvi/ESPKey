@@ -104,6 +104,17 @@ volatile unsigned long last_aux_change = 0;
 volatile byte last_aux = 1;
 volatile byte expect_aux = 2;
 
+// led blinking with style
+#if defined(LED_BUILTIN) && defined(ESP32)
+  #define PWM_CHANNEL 0       //channel for PWM
+  #define PWM_RESOLUTION 8    // resolution of PWM. 8but for 255 levels
+  #define PWM_FREQUENCY 1000  // LED ON/OFF frequency 
+  int ledstep = 10;           // how much to change duty Cycle in each loop. The more, the fastest the LED will pulse
+  int dutyCycle=0;
+  #define MIN_BRIGHTNESS 10    // minimum intensity
+  #define MAX_BRIGHTNESS 200   // max for 8 bits is 255 
+#endif
+
 void IRAM_ATTR reader1_append(int value) {
   reader1_count++;
   reader1_millis = millis();
@@ -609,6 +620,10 @@ void setup() {
   digitalWrite(LED_ASSERT, LOW); 
 #if defined(LED_BUILTIN)
   pinMode(LED_BUILTIN, OUTPUT);
+  #if defined(ESP32)
+  ledcSetup(PWM_CHANNEL, PWM_FREQUENCY, PWM_RESOLUTION);
+  ledcAttachPin(LED_BUILTIN, PWM_CHANNEL);
+  #endif
   digitalWrite(LED_BUILTIN, HIGH);
 #endif
 
@@ -846,6 +861,7 @@ String grep_auth_file() {
 }
 
 void loop() {
+  
   // Check for serial data
   /*
   if (DBG_OUTPUT_PORT.available() > 0 ) {
@@ -882,9 +898,22 @@ void loop() {
 
   
   // Blink LED for testing
-  #ifdef LED_BUILTIN
+#if defined(LED_BUILTIN)
+  #if defined(ESP32)
+    ledcWrite(PWM_CHANNEL, dutyCycle);
+    // modulate dutyCycle to get a pulsating LED effect
+    dutyCycle += ledstep ;
+    if (dutyCycle >= MAX_BRIGHTNESS) {
+      dutyCycle=MAX_BRIGHTNESS;
+      ledstep = -ledstep ;
+    } else if (dutyCycle <= MIN_BRIGHTNESS) {
+      dutyCycle = MIN_BRIGHTNESS ;
+      ledstep = -ledstep ;
+    }
+  #else
     toggle_pin(LED_BUILTIN);
   #endif
+#endif
   
   // Log text that may have happen during interrupts
   append_log("") ;
