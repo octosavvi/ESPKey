@@ -264,9 +264,13 @@ bool loadConfig() {
     return false;
   }
 
+// strncpy does not add '\0' to dst if size is too big.
+// This macro copies src to dst, ensuring sizeof dst is not exceeded, and adds \0 at the end
+#define strnullcpy(dst,src) snprintf((dst), sizeof(dst), "%s", (const char *)(src))
+
   // FIXME these should be testing for valid input before replacing defaults
   if (json.containsKey("log_name")) {
-    strncpy(log_name, json["log_name"], 20);
+    strnullcpy(log_name, json["log_name"]);
     DBG_OUTPUT_PORT.println("Loaded log_name: " + String(log_name));
   }
   if (json.containsKey("ap_enable")) {
@@ -278,23 +282,23 @@ bool loadConfig() {
     DBG_OUTPUT_PORT.println("Loaded ap_hidden: " + String(ap_hidden));
   }
   if (json.containsKey("ap_ssid")) {
-    strncpy(ap_ssid, json["ap_ssid"], 20);
+    strnullcpy(ap_ssid, json["ap_ssid"]);
     DBG_OUTPUT_PORT.println("Loaded ap_ssid: " + String(ap_ssid));
   }
   if (json.containsKey("ap_psk")) {
-    strncpy(ap_psk, json["ap_psk"], 20);
+    strnullcpy(ap_psk, json["ap_psk"]);
     DBG_OUTPUT_PORT.println("Loaded ap_psk: " + String(ap_psk));
   }
   if (json.containsKey("station_ssid")) {
-    strncpy(station_ssid, json["station_ssid"], 20);
+    strnullcpy(station_ssid, json["station_ssid"]);
     DBG_OUTPUT_PORT.println("Loaded station_ssid: " + String(station_ssid));
   }
   if (json.containsKey("station_psk")) {
-    strncpy(station_psk, json["station_psk"], 30);
+    strnullcpy(station_psk, json["station_psk"]);
     DBG_OUTPUT_PORT.println("Loaded station_psk: " + String(station_psk));
   }
   if (json.containsKey("mDNShost")) {
-    strncpy(mDNShost, json["mDNShost"], 20);
+    strnullcpy(mDNShost, json["mDNShost"]);
     DBG_OUTPUT_PORT.println("Loaded mDNShost: " + String(mDNShost));
   }
   if (json.containsKey("DoS_id")) {
@@ -302,20 +306,20 @@ bool loadConfig() {
     DBG_OUTPUT_PORT.println("Loaded DoS_id: " + DoS_id);
   }
   if (json.containsKey("ota_password")) {
-    strncpy(ota_password, json["ota_password"], 24);
+    strnullcpy(ota_password, json["ota_password"]);
     DBG_OUTPUT_PORT.println("Loaded ota_password: " + String(ota_password));
   }
   if (json.containsKey("www_username")) {
-    strncpy(www_username, json["www_username"], 20);
+    strnullcpy(www_username, json["www_username"]);
     DBG_OUTPUT_PORT.println("Loaded www_username: " + String(www_username));
   }
   if (json.containsKey("www_password")) {
-    strncpy(www_password, json["www_password"], 20);
+    strnullcpy(www_password, json["www_password"]);
     DBG_OUTPUT_PORT.println("Loaded www_password: " + String(www_password));
   }
   if (json.containsKey("syslog_server")) {
     char buf[20];
-    strncpy(buf, json["syslog_server"], 20);
+    strnullcpy(buf, json["syslog_server"]);
     syslog_server.fromString(buf);
     // DBG_OUTPUT_PORT.println("Loaded syslog_server: " + String(syslog_server, HEX));
     DBG_OUTPUT_PORT.println("Loaded syslog_server: " + String(buf));
@@ -325,11 +329,11 @@ bool loadConfig() {
     DBG_OUTPUT_PORT.println("Loaded syslog_port: " + String(syslog_port));
   }
   if (json.containsKey("syslog_service_name")) {
-    strncpy(syslog_service_name, json["syslog_service_name"], 20);
+    strnullcpy(syslog_service_name, json["syslog_service_name"]);
     DBG_OUTPUT_PORT.println("Loaded syslog_service_name: " + String(syslog_service_name));
   }
   if (json.containsKey("syslog_host")) {
-    strncpy(syslog_host, json["syslog_host"], 20);
+    strnullcpy(syslog_host, json["syslog_host"]);
     DBG_OUTPUT_PORT.println("Loaded syslog_host: " + String(syslog_host));
   }
   if (json.containsKey("syslog_priority")) {
