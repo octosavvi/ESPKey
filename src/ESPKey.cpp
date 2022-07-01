@@ -109,11 +109,11 @@ volatile byte expect_aux = 2;
   #define PWM_CHANNEL 0       //channel for PWM
   #define PWM_RESOLUTION 8    // resolution of PWM. 8but for 255 levels
   #define PWM_FREQUENCY 1000  // LED ON/OFF frequency 
-  int ledstep = 10;           // how much to change duty Cycle in each loop. The more, the fastest the LED will pulse
-  int dutyCycle=0;
-  #define MIN_BRIGHTNESS 10    // minimum intensity
-  #define MAX_BRIGHTNESS 200   // max for 8 bits is 255 
 #endif
+int ledstep = 10;           // how much to change duty Cycle in each loop. The more, the fastest the LED will pulse
+int dutyCycle=0;
+#define MIN_BRIGHTNESS 10    // minimum intensity
+#define MAX_BRIGHTNESS 200   // max for 8 bits is 255 
 
 void IRAM_ATTR reader1_append(int value) {
   reader1_count++;
@@ -545,7 +545,9 @@ void handleFileList() {
   }
   
   output += "]";
+  // DBG_OUTPUT_PORT.println("handleFileList: Sending " + output);
   server.send(200, "text/json", output);
+
 }
 
 void handleDoS(){
@@ -646,6 +648,11 @@ void setup() {
   delay(100);
 
   DBG_OUTPUT_PORT.println("Chip ID: 0x" + getChipId());
+  #if defined(LED_BUILTIN)
+    DBG_OUTPUT_PORT.println("This board has a LED on PIN " + String(LED_BUILTIN)) ;
+  #else
+    DBG_OUTPUT_PORT.println("This board has no LED") ;
+  #endif 
 
   // Set Hostname.
   String dhcp_hostname(HOSTNAME);
@@ -901,18 +908,22 @@ void loop() {
 #if defined(LED_BUILTIN)
   #if defined(ESP32)
     ledcWrite(PWM_CHANNEL, dutyCycle);
-    // modulate dutyCycle to get a pulsating LED effect
-    dutyCycle += ledstep ;
-    if (dutyCycle >= MAX_BRIGHTNESS) {
-      dutyCycle=MAX_BRIGHTNESS;
-      ledstep = -ledstep ;
-    } else if (dutyCycle <= MIN_BRIGHTNESS) {
-      dutyCycle = MIN_BRIGHTNESS ;
-      ledstep = -ledstep ;
-    }
-  #else
-    toggle_pin(LED_BUILTIN);
   #endif
+  // modulate dutyCycle to get a pulsating LED effect
+  dutyCycle += ledstep ;
+  if (dutyCycle >= MAX_BRIGHTNESS) {
+    dutyCycle=MAX_BRIGHTNESS;
+    ledstep = -ledstep ;
+    #if defined(ESP8266)
+      digitalWrite(LED_BUILTIN, HIGH);
+    #endif 
+  } else if (dutyCycle <= MIN_BRIGHTNESS) {
+    dutyCycle = MIN_BRIGHTNESS ;
+    ledstep = -ledstep ;
+    #if defined(ESP8266)
+      digitalWrite(LED_BUILTIN, LOW);
+    #endif
+  }
 #endif
   
   // Log text that may have happen during interrupts
