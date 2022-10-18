@@ -54,8 +54,6 @@ extern "C" {
 #define AUTH_FILE "/auth.txt"
 #define DBG_OUTPUT_PORT Serial	// This could be a file with some hacking
 #define CARD_LEN 4     // minimum card length in bits
-#define PULSE_WIDTH 34 // length of asserted pulse in microSeconds
-#define PULSE_GAP 2000 - PULSE_WIDTH   // delay between pulses in microSeconds
 
 // Pin number assignments
 
@@ -80,6 +78,9 @@ unsigned int syslog_port = 514;
 char syslog_service_name[20] = "accesscontrol";
 char syslog_host[20] = "ESPKey";
 byte syslog_priority = 36;
+
+uint32_t pulse_width = 120 ; // length of asserted pulse in microSeconds
+uint32_t pulse_gap = 1000 ; // delay between pulses in microSeconds
 
 WiFiUDP Udp;
 #if defined(ESP32)
@@ -183,9 +184,9 @@ byte toggle_pin(byte pin) {
 
 void transmit_assert(byte pin) {
   digitalWrite(pin, HIGH);
-  delayMicroseconds(PULSE_WIDTH);
+  delayMicroseconds(pulse_width);
   digitalWrite(pin, LOW);
-  delayMicroseconds(PULSE_GAP);
+  delayMicroseconds(pulse_gap);
 }
 
 void transmit_id_nope(volatile unsigned long sendValue, unsigned short bitcount) {
@@ -350,6 +351,14 @@ bool loadConfig() {
   if (json.containsKey("syslog_priority")) {
     syslog_priority = json["syslog_priority"];
     DBG_OUTPUT_PORT.println("Loaded syslog_priority: " + String(syslog_priority));
+  }
+  if (json.containsKey("pulse_width")) {
+    pulse_width = json["pulse_width"];
+    DBG_OUTPUT_PORT.println("Loaded pulse_width: " + String(pulse_width));
+  }
+  if (json.containsKey("pulse_gap")) {
+    pulse_gap = json["pulse_gap"];
+    DBG_OUTPUT_PORT.println("Loaded pulse_gap: " + String(pulse_gap));
   }
 
   return true;

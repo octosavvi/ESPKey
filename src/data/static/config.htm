@@ -57,6 +57,8 @@
       syslog_service_name : "accesscontrol",
       syslog_host : "ESPKey",
       syslog_priority : 36,
+      pulse_width : 120,
+      pulse_gap : 1000,
     };
     xmlhttp.open("GET", "/config.json", true);
     xmlhttp.send();
@@ -129,6 +131,8 @@
     Syslog service name: <input type="text" name="syslog_service_name"><br>
     Syslog host: <input type="text" name="syslog_host"><br>
     Syslog priority: <input type="text" name="syslog_priority"><br>
+    Wiegand pulse width: <input type="text" name="pulse_width"><br>
+    Wiegand pulse gap: <input type="text" name="pulse_gap"><br>
   </form>
   <button onclick="submitConfig()">Submit</button>
 </body>
