@@ -92,6 +92,7 @@ function Card(ts, text) {
   this.bin = "0".repeat(this.length - this.bin.length) + this.bin;
   this.bits = this.bin.split('').map(function(x){return parseInt(x)});
   if(this.length != this.bits.length) this.parseClass = "bad";
+  this.payload=bin2hex(this.bin.slice(1, -1)); // extracts payload : bitstream minus parity bits
   var paritySize = Math.round(this.length / 2);
   var sum = 0;
   this.bits.slice(0, paritySize).map(function(x){sum+=x});
@@ -276,6 +277,7 @@ function displayLog(ESPnow, log) {
       }
       appendCell(row, card.facility);
       appendCell(row, card.user);
+      appendCell(row, card.payload);
       row.onclick = function(){info(this)};
       row.card = card;
     } else {
