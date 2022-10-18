@@ -1,6 +1,8 @@
 /* ESPKey
 *  Kenny McElroy
 *
+* ported to ESP32 and PlatformIO by Didier Arenzana.
+* 
 * This sketch runs on the ESPKey ESP8266 module carrier with the 
 * intent of being physically attached to the Wiegand data wires
 * between a card reader and the local control box.
@@ -11,12 +13,24 @@
 *
 */
 
-#include <ESP8266WiFi.h>
+#include <Arduino.h>
+
+#if defined (ESP32)
+  #include <WiFi.h>
+  #include <WebServer.h>
+  #include <ESPmDNS.h>
+  #include <HTTPUpdateServer.h>
+  #include <SPIFFS.h>
+#elif defined (ESP8266)
+  #include <ESP8266WebServer.h>
+  #include <ESP8266mDNS.h>
+  #include <ESP8266HTTPUpdateServer.h>
+#else
+  #error "This code is intended to run on ESP8266 or ESP32."
+#endif
+
 #include <WiFiUdp.h>
 #include <WiFiClient.h>
-#include <ESP8266WebServer.h>
-#include <ESP8266mDNS.h>
-#include <ESP8266HTTPUpdateServer.h>
 #include <FS.h>
 #include <ArduinoOTA.h>
 #include <ArduinoJson.h>
@@ -29,22 +43,21 @@ extern "C" {
 
 #define VERSION "131"
 
+#if defined(ESP32)
+  #define FORMAT_SPIFFS_IF_FAILED true
+#else
+  #define FORMAT_SPIFFS_IF_FAILED
+#endif
+
 #define HOSTNAME "ESPKey-" // Hostname prefix for DHCP/OTA
 #define CONFIG_FILE "/config.json"
 #define AUTH_FILE "/auth.txt"
 #define DBG_OUTPUT_PORT Serial	// This could be a file with some hacking
 #define CARD_LEN 4     // minimum card length in bits
-#define PULSE_WIDTH 34 // length of asserted pulse in microSeconds
-#define PULSE_GAP 2000 - PULSE_WIDTH   // delay between pulses in microSeconds
 
 // Pin number assignments
-#define D0_ASSERT 12
-#define D0_SENSE 13
-#define D1_ASSERT 16
-#define D1_SENSE 14
-#define LED_ASSERT 4
-#define LED_SENSE 5
-#define CONF_RESET 0
+
+#include "pin_config.h"
 
 // Default settings used when no configuration file exists
 char log_name[20] = "Alpha";
@@ -54,7 +67,7 @@ char ap_ssid[20] = "ESPKey-config"; // Default SSID.
 IPAddress ap_ip(192, 168, 4, 1);
 char ap_psk[20] = "accessgranted"; // Default PSK.
 char station_ssid[20] = "";
-char station_psk[20] = "";
+char station_psk[30] = "";
 char mDNShost[20] = "ESPKey";
 String DoS_id = "7fffffff:31";
 char ota_password[24] = "ExtraSpecialPassKey";
@@ -66,9 +79,18 @@ char syslog_service_name[20] = "accesscontrol";
 char syslog_host[20] = "ESPKey";
 byte syslog_priority = 36;
 
+uint32_t pulse_width = 120 ; // length of asserted pulse in microSeconds
+uint32_t pulse_gap = 1000 ; // delay between pulses in microSeconds
+
 WiFiUDP Udp;
-ESP8266WebServer server(80);
-ESP8266HTTPUpdateServer httpUpdater;
+#if defined(ESP32)
+  WebServer server(80);
+  HTTPUpdateServer httpUpdater;
+#elif defined(ESP8266)
+  ESP8266WebServer server(80);
+  ESP8266HTTPUpdateServer httpUpdater;
+#endif
+
 File fsUploadFile;
 
 //byte incoming_byte = 0; 
@@ -83,7 +105,18 @@ volatile unsigned long last_aux_change = 0;
 volatile byte last_aux = 1;
 volatile byte expect_aux = 2;
 
-void reader1_append(int value) {
+// led blinking with style
+#if defined(LED_BUILTIN) && defined(ESP32)
+  #define PWM_CHANNEL 0       //channel for PWM
+  #define PWM_RESOLUTION 8    // resolution of PWM. 8but for 255 levels
+  #define PWM_FREQUENCY 1000  // LED ON/OFF frequency 
+#endif
+int ledstep = 10;           // how much to change duty Cycle in each loop. The more, the fastest the LED will pulse
+int dutyCycle=0;
+#define MIN_BRIGHTNESS 10    // minimum intensity
+#define MAX_BRIGHTNESS 200   // max for 8 bits is 255 
+
+void IRAM_ATTR reader1_append(int value) {
   reader1_count++;
   reader1_millis = millis();
   reader1_byte = reader1_byte << 1;
@@ -94,11 +127,11 @@ void reader1_append(int value) {
   }
 }
 
-void reader1_D0_trigger(void) {
+void IRAM_ATTR reader1_D0_trigger(void) {
   reader1_append(0);
 }
 
-void reader1_D1_trigger(void) {
+void IRAM_ATTR reader1_D1_trigger(void) {
   reader1_append(1);
 }
 
@@ -151,9 +184,9 @@ byte toggle_pin(byte pin) {
 
 void transmit_assert(byte pin) {
   digitalWrite(pin, HIGH);
-  delayMicroseconds(PULSE_WIDTH);
+  delayMicroseconds(pulse_width);
   digitalWrite(pin, LOW);
-  delayMicroseconds(PULSE_GAP);
+  delayMicroseconds(pulse_gap);
 }
 
 void transmit_id_nope(volatile unsigned long sendValue, unsigned short bitcount) {
@@ -243,9 +276,13 @@ bool loadConfig() {
     return false;
   }
 
+// strncpy does not add '\0' to dst if size is too big.
+// This macro copies src to dst, ensuring sizeof dst is not exceeded, and adds \0 at the end
+#define strnullcpy(dst,src) snprintf((dst), sizeof(dst), "%s", (const char *)(src))
+
   // FIXME these should be testing for valid input before replacing defaults
   if (json.containsKey("log_name")) {
-    strncpy(log_name, json["log_name"], 20);
+    strnullcpy(log_name, json["log_name"]);
     DBG_OUTPUT_PORT.println("Loaded log_name: " + String(log_name));
   }
   if (json.containsKey("ap_enable")) {
@@ -257,23 +294,23 @@ bool loadConfig() {
     DBG_OUTPUT_PORT.println("Loaded ap_hidden: " + String(ap_hidden));
   }
   if (json.containsKey("ap_ssid")) {
-    strncpy(ap_ssid, json["ap_ssid"], 20);
+    strnullcpy(ap_ssid, json["ap_ssid"]);
     DBG_OUTPUT_PORT.println("Loaded ap_ssid: " + String(ap_ssid));
   }
   if (json.containsKey("ap_psk")) {
-    strncpy(ap_psk, json["ap_psk"], 20);
+    strnullcpy(ap_psk, json["ap_psk"]);
     DBG_OUTPUT_PORT.println("Loaded ap_psk: " + String(ap_psk));
   }
   if (json.containsKey("station_ssid")) {
-    strncpy(station_ssid, json["station_ssid"], 20);
+    strnullcpy(station_ssid, json["station_ssid"]);
     DBG_OUTPUT_PORT.println("Loaded station_ssid: " + String(station_ssid));
   }
   if (json.containsKey("station_psk")) {
-    strncpy(station_psk, json["station_psk"], 20);
+    strnullcpy(station_psk, json["station_psk"]);
     DBG_OUTPUT_PORT.println("Loaded station_psk: " + String(station_psk));
   }
   if (json.containsKey("mDNShost")) {
-    strncpy(mDNShost, json["mDNShost"], 20);
+    strnullcpy(mDNShost, json["mDNShost"]);
     DBG_OUTPUT_PORT.println("Loaded mDNShost: " + String(mDNShost));
   }
   if (json.containsKey("DoS_id")) {
@@ -281,38 +318,47 @@ bool loadConfig() {
     DBG_OUTPUT_PORT.println("Loaded DoS_id: " + DoS_id);
   }
   if (json.containsKey("ota_password")) {
-    strncpy(ota_password, json["ota_password"], 24);
+    strnullcpy(ota_password, json["ota_password"]);
     DBG_OUTPUT_PORT.println("Loaded ota_password: " + String(ota_password));
   }
   if (json.containsKey("www_username")) {
-    strncpy(www_username, json["www_username"], 20);
+    strnullcpy(www_username, json["www_username"]);
     DBG_OUTPUT_PORT.println("Loaded www_username: " + String(www_username));
   }
   if (json.containsKey("www_password")) {
-    strncpy(www_password, json["www_password"], 20);
+    strnullcpy(www_password, json["www_password"]);
     DBG_OUTPUT_PORT.println("Loaded www_password: " + String(www_password));
   }
   if (json.containsKey("syslog_server")) {
     char buf[20];
-    strncpy(buf, json["syslog_server"], 20);
+    strnullcpy(buf, json["syslog_server"]);
     syslog_server.fromString(buf);
-    DBG_OUTPUT_PORT.println("Loaded syslog_server: " + String(syslog_server, HEX));
+    // DBG_OUTPUT_PORT.println("Loaded syslog_server: " + String(syslog_server, HEX));
+    DBG_OUTPUT_PORT.println("Loaded syslog_server: " + String(buf));
   }
   if (json.containsKey("syslog_port")) {
     syslog_port = json["syslog_port"];
     DBG_OUTPUT_PORT.println("Loaded syslog_port: " + String(syslog_port));
   }
   if (json.containsKey("syslog_service_name")) {
-    strncpy(syslog_service_name, json["syslog_service_name"], 20);
+    strnullcpy(syslog_service_name, json["syslog_service_name"]);
     DBG_OUTPUT_PORT.println("Loaded syslog_service_name: " + String(syslog_service_name));
   }
   if (json.containsKey("syslog_host")) {
-    strncpy(syslog_host, json["syslog_host"], 20);
+    strnullcpy(syslog_host, json["syslog_host"]);
     DBG_OUTPUT_PORT.println("Loaded syslog_host: " + String(syslog_host));
   }
   if (json.containsKey("syslog_priority")) {
     syslog_priority = json["syslog_priority"];
     DBG_OUTPUT_PORT.println("Loaded syslog_priority: " + String(syslog_priority));
+  }
+  if (json.containsKey("pulse_width")) {
+    pulse_width = json["pulse_width"];
+    DBG_OUTPUT_PORT.println("Loaded pulse_width: " + String(pulse_width));
+  }
+  if (json.containsKey("pulse_gap")) {
+    pulse_gap = json["pulse_gap"];
+    DBG_OUTPUT_PORT.println("Loaded pulse_gap: " + String(pulse_gap));
   }
 
   return true;
@@ -350,24 +396,42 @@ String getContentType(String filename){
   return "text/plain";
 }
 
-void append_log(String text) {
+void IRAM_ATTR append_log(String text) {
+  /* append_log might be run during an interruption.
+  * On ESP32 it is not recommended to use Serial.println or SPI during interrupts to keep execution time short,
+  * so we store the message in a static variable, and if we are not in an interruption log it to file,
+  * otherwise it will be logged on next call not in an interrupt.
+  */
+  
+  static String deferredLog = "" ;
+  if (text != "") deferredLog += String(millis()) + " " + text + "\x0D\x0A";
+  
+  // if there is nothing to log, exit now.
+  if (deferredLog == "") return ;
+  
+  // if we are in an interrupt return now, we'l log this message on next call to append_log
+  #if defined(ESP32)
+    if (xPortInIsrContext()) return ;
+  #endif
+  
   File file = SPIFFS.open("/log.txt", "a");
   if(file) {
-    file.println(String(millis()) + " " + text);
-    DBG_OUTPUT_PORT.println("Appending to log: " + String(millis()) + " " + text);
+    file.print(deferredLog);
+    DBG_OUTPUT_PORT.print("Appending to log: " + deferredLog);
     file.close();
+    deferredLog = "" ;
   }
   else
     DBG_OUTPUT_PORT.println("Failed opening log file.");
 }
 
 void syslog(String text) {
-  if (WiFi.status() != WL_CONNECTED || syslog_server == INADDR_NONE) return;
+  if (WiFi.status() != WL_CONNECTED || syslog_server == IPAddress(0,0,0,0)) return;
   char buf[101];
   text = "<"+String(syslog_priority)+">"+String(syslog_host)+" "+String(syslog_service_name)+": "+text;
   text.toCharArray(buf, sizeof(buf)-1);
   Udp.beginPacket(syslog_server, syslog_port);
-  Udp.write(buf);
+  Udp.printf("%s", buf);
   Udp.endPacket();
 }
 
@@ -392,7 +456,7 @@ bool handleFileRead(String path){
       path += F(".gz");
     File file = SPIFFS.open(path, "r");
     server.sendHeader("Now", String(millis()));
-    size_t sent = server.streamFile(file, contentType);
+    server.streamFile(file, contentType);
     file.close();
     return true;
   }
@@ -459,24 +523,40 @@ void handleFileList() {
   
   String path = server.arg("dir");
   DBG_OUTPUT_PORT.println("handleFileList: " + path);
+#if defined(ESP8266)
   Dir dir = SPIFFS.openDir(path);
+#elif defined(ESP32)
+  File  dir = SPIFFS.open(path);
+#endif
   path = String();
 
   String output = "[";
+#if defined(ESP8266)
   while(dir.next()){
     File entry = dir.openFile("r");
+#elif defined(ESP32)
+  while(File entry = dir.openNextFile()){
+#endif
     if (output != "[") output += ',';
+#if defined(ESP8266)
     bool isDir = false;
+#elif defined(ESP32)
+    bool isDir = entry.isDirectory();
+#endif
     output += "{\"type\":\"";
     output += (isDir)?"dir":"file";
     output += "\",\"name\":\"";
     output += String(entry.name()).substring(1);
     output += "\"}";
+#if defined(ESP8266)
     entry.close();
+#endif
   }
   
   output += "]";
+  // DBG_OUTPUT_PORT.println("handleFileList: Sending " + output);
   server.send(200, "text/json", output);
+
 }
 
 void handleDoS(){
@@ -493,9 +573,9 @@ void handleRestart() {
   ESP.restart();
 }
 
-void resetConfig(void) {
+void IRAM_ATTR resetConfig(void) {
   if (millis() > 30000) return;
-  if (digitalRead(CONF_RESET) == 0 & reset_pin_state == 1) {
+  if (digitalRead(CONF_RESET) == 0 && reset_pin_state == 1) {
     reset_pin_state = 0;
     config_reset_millis = millis();
   } else {
@@ -508,7 +588,7 @@ void resetConfig(void) {
   }
 }
 
-void auxChange(void) {
+void IRAM_ATTR auxChange(void) {
   volatile byte new_value = digitalRead(LED_SENSE);
   if (new_value == expect_aux) {
     last_aux = new_value;
@@ -524,6 +604,23 @@ void auxChange(void) {
   }
 }
 
+String getChipId() {
+  static String result = "" ;
+
+  if (result != "") return result ;
+
+#if defined(ESP8266)
+  result = String(ESP.getChipId(), HEX);
+#elif defined(ESP32)
+  uint32_t chipId= 0;
+  for (int i=0; i<17; i=i+8) {
+    chipId |= ((ESP.getEfuseMac() >> (40 - i)) & 0xff) << i;
+  }
+  result = String(chipId, HEX) ;
+#endif
+  return result ;
+}
+
 void setup() {
   // Outputs
   pinMode(D0_ASSERT, OUTPUT); 
@@ -532,6 +629,14 @@ void setup() {
   digitalWrite(D1_ASSERT, LOW); 
   pinMode(LED_ASSERT, OUTPUT); 
   digitalWrite(LED_ASSERT, LOW); 
+#if defined(LED_BUILTIN)
+  pinMode(LED_BUILTIN, OUTPUT);
+  #if defined(ESP32)
+  ledcSetup(PWM_CHANNEL, PWM_FREQUENCY, PWM_RESOLUTION);
+  ledcAttachPin(LED_BUILTIN, PWM_CHANNEL);
+  #endif
+  digitalWrite(LED_BUILTIN, HIGH);
+#endif
 
   // Inputs
   pinMode(D0_SENSE, INPUT);
@@ -551,27 +656,44 @@ void setup() {
 
   delay(100);
 
-  DBG_OUTPUT_PORT.println("Chip ID: 0x" + String(ESP.getChipId(), HEX));
+  DBG_OUTPUT_PORT.println("Chip ID: 0x" + getChipId());
+  #if defined(LED_BUILTIN)
+    DBG_OUTPUT_PORT.println("This board has a LED on PIN " + String(LED_BUILTIN)) ;
+  #else
+    DBG_OUTPUT_PORT.println("This board has no LED") ;
+  #endif 
 
   // Set Hostname.
   String dhcp_hostname(HOSTNAME);
-  dhcp_hostname += String(ESP.getChipId(), HEX);
+
+  dhcp_hostname += getChipId();
   WiFi.hostname(dhcp_hostname);
 
   // Print hostname.
   DBG_OUTPUT_PORT.println("Hostname: " + dhcp_hostname);
 
-  if (!SPIFFS.begin()) {
+  if (!SPIFFS.begin(FORMAT_SPIFFS_IF_FAILED)) {
     Serial.println(F("Failed to mount file system"));
     return;
   } else {
+#if defined(ESP32)
+    File dir = SPIFFS.open("/");
+    while (File entry = dir.openNextFile()) {
+      String fileName = entry.name();
+#else
     Dir dir = SPIFFS.openDir("/");
     while (dir.next()) {
       String fileName = dir.fileName();
+#endif
+
       // This is a dirty hack to deal with readers which don't pull LED up to 5V
       if (fileName == String("/auth.txt")) detachInterrupt(digitalPinToInterrupt(LED_SENSE));
 
+#if defined(ESP32)
+      size_t fileSize = entry.size();
+#else
       size_t fileSize = dir.fileSize();
+#endif
       DBG_OUTPUT_PORT.printf("FS File: %s, size: %s\n", fileName.c_str(), formatBytes(fileSize).c_str());
     }
   }
@@ -664,6 +786,7 @@ void setup() {
   server.on("/format", HTTP_DELETE, [](){
     if (basicAuthFailed()) return false;
     if(SPIFFS.format()) server.send(200, "text/plain", "Format success!");
+    return true ;
   });
   //list directory
   server.on("/list", HTTP_GET, handleFileList);
@@ -671,6 +794,7 @@ void setup() {
   server.on("/edit", HTTP_GET, [](){
     if (basicAuthFailed()) return false;
     if(!handleFileRead("/static/edit.htm")) server.send(404, "text/plain", "FileNotFound");
+    return true;
   });
   //create file
   server.on("/edit", HTTP_PUT, handleFileCreate);
@@ -687,24 +811,37 @@ void setup() {
     if (basicAuthFailed()) return false;
     if(!handleFileRead(server.uri()))
       server.send(404, "text/plain", "FileNotFound");
+    return true ;
   });
   
   server.on("/version", HTTP_GET, [](){
     if (basicAuthFailed()) return false;
-    String json = "{\"version\":\""+String(VERSION)+"\",\"log_name\":\""+String(log_name)+"\",\"ChipID\":\""+String(ESP.getChipId(), HEX)+"\"}\n";
+    
+    String json = "{\"version\":\""+String(VERSION)+"\",\"log_name\":\""+String(log_name)+"\",\"ChipID\":\""+ getChipId() +"\"}\n";
     server.send(200, "text/json", json);
     json = String();
+    return true;
   });
   //get heap status, analog input value and all GPIO statuses in one json call
   server.on("/all", HTTP_GET, [](){
+    DBG_OUTPUT_PORT.println(String("DO: ") + digitalRead(D0_SENSE)\
+                           + " D1: " + digitalRead(D1_SENSE)\
+                           + " LED: "+ digitalRead(LED_SENSE)\
+                           +" RESET: "+digitalRead(CONF_RESET)\
+                           );
     if (basicAuthFailed()) return false;
     String json = "{";
     json += "\"heap\":"+String(ESP.getFreeHeap());
-    json += ", \"analog\":"+String(analogRead(A0));
+    // json += ", \"analog\":"+String(analogRead(A0)); // not used ?
+#if defined(ESP32)
+    json += ", \"gpio\":"+String((uint32_t)(GPIO.in)); // we are limited to 32 bit given the way it is interpreted by graphs.js and gpio.htm
+#else
     json += ", \"gpio\":"+String((uint32_t)(((GPI | GPO) & 0xFFFF) | ((GP16I & 0x01) << 16)));
+#endif
     json += "}";
     server.send(200, "text/json", json);
     json = String();
+    return true;
   });
   server.serveStatic("/static", SPIFFS, "/static","max-age=86400");
   httpUpdater.setup(&server);	// This doesn't do authentication
@@ -740,6 +877,7 @@ String grep_auth_file() {
 }
 
 void loop() {
+  
   // Check for serial data
   /*
   if (DBG_OUTPUT_PORT.available() > 0 ) {
@@ -774,14 +912,31 @@ void loop() {
   server.handleClient();
   ArduinoOTA.handle();
 
-  /*
+  
   // Blink LED for testing
-  digitalWrite(LED_ASSERT, HIGH);
-  delay(100);
-  digitalWrite(LED_ASSERT, LOW);
-  delay(4900);
-  */
-
+#if defined(LED_BUILTIN)
+  #if defined(ESP32)
+    ledcWrite(PWM_CHANNEL, dutyCycle);
+  #endif
+  // modulate dutyCycle to get a pulsating LED effect
+  dutyCycle += ledstep ;
+  if (dutyCycle >= MAX_BRIGHTNESS) {
+    dutyCycle=MAX_BRIGHTNESS;
+    ledstep = -ledstep ;
+    #if defined(ESP8266)
+      digitalWrite(LED_BUILTIN, HIGH);
+    #endif 
+  } else if (dutyCycle <= MIN_BRIGHTNESS) {
+    dutyCycle = MIN_BRIGHTNESS ;
+    ledstep = -ledstep ;
+    #if defined(ESP8266)
+      digitalWrite(LED_BUILTIN, LOW);
+    #endif
+  }
+#endif
+  
+  // Log text that may have happen during interrupts
+  append_log("") ;
   // Standard delay
   delay(100);
 }

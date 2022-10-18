@@ -14,6 +14,6 @@ cat ui-update-head.sh > ui-update.sh
 cd ../data/static/
 for f in *; do gzip -9 $f; done
 cd ..
-tar -jcvf - . >> ../src/ui-update.sh
+tar -jcvf - . >> ../html_src/ui-update.sh
 cd -
 for f in *; do gunzip $f; done
