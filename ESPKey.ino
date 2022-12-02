@@ -562,7 +562,7 @@ void setup() {
   DBG_OUTPUT_PORT.println("Hostname: " + dhcp_hostname);
 
   if (!SPIFFS.begin()) {
-    Serial.println(F("Failed to mount file system"));
+    DBG_OUTPUT_PORT.println(F("Failed to mount file system"));
     return;
   } else {
     Dir dir = SPIFFS.openDir("/");
